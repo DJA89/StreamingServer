@@ -62,31 +62,38 @@ class VideoCaster(Thread):
         self.capture.release()
         self.join()
 
+class UDPListener(Thread):
+    def __init__(self, host):
+        Thread.__init__(self)
+        log('Starting up on %s port %s\n' % host)
+        self.socket = socket.socket(
+            socket.AF_INET,
+            socket.SOCK_DGRAM
+        )
+        self.socket.bind(host)
+
+    def run(self):
+        log('Waiting to receive client request...\n')
+        while True:
+            data, address = self.socket.recvfrom(4096)
+
+            if (active_udp_clients.has_key(address)):
+                log('Received a refresh request from %s on port %s' % address)
+                active_udp_clients[address].set_last_req_time()
+            else:
+                log('Received a connection request from %s on port %s' % address)
+                new_client = UDPClient(self.socket, address)
+                new_client.daemon = True
+                new_client.start()
+
+
 def server():
-    udp_socket = socket.socket(
-        socket.AF_INET,
-        socket.SOCK_DGRAM
-    )
-    server_host = (SERVER_ADDRESS, UDP_PORT)
-    log('Starting up on %s port %s\n' % server_host)
-    udp_socket.bind(server_host)
+    udp_listener_thread = UDPListener((SERVER_ADDRESS, UDP_PORT))
+    udp_listener_thread.start()
 
     caster = VideoCaster()
     caster.daemon = True
     caster.start()
-    
-    log('Waiting to receive client request...\n')
-    while True:
-        data, address = udp_socket.recvfrom(4096)
-
-        if (active_udp_clients.has_key(address)):
-            log('Received a refresh request from %s on port %s' % address)
-            active_udp_clients[address].set_last_req_time()
-        else:
-            log('Received a connection request from %s on port %s' % address)
-            new_client = UDPClient(udp_socket, address)
-            new_client.daemon = True
-            new_client.start()
 
 def log(message):
     print >>sys.stderr, '[%s] - %s' % (datetime.now().strftime('%H:%M:%S'), message)

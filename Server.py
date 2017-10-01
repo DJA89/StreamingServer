@@ -44,6 +44,34 @@ class UDPClient(Thread):
         del active_udp_clients[self.address]
         self.mailbox.put("shutdown")
 
+class TCPClient(Thread):
+    def __init__(self, socket, client_address):
+        Thread.__init__(self)
+        self.mailbox = Queue.Queue()
+        self.socket = socket
+        self.address = client_address
+        active_tcp_clients[client_address] = self
+
+    def run(self):
+        while True:
+            frame = self.mailbox.get()
+            if isinstance(frame, basestring) and frame == 'shutdown':
+                socket.close()
+                break
+            stringData = data.tostring() + 'inicio'
+            #sustituir las ocurrencias de la palabra de inicio 
+
+            socket.send(stringData);
+        log('Shutting down client on %s:%s' % self.address)
+        self.stop()
+
+    def feed_frame(self, frame):
+        self.mailbox.put(frame)
+
+    def stop(self):
+        del active_tcp_clients[self.address]
+        self.mailbox.put("shutdown")
+
 class VideoCaster(Thread):
     def __init__(self):
         Thread.__init__(self)

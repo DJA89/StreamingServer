@@ -58,8 +58,9 @@ class TCPClient(Thread):
             if isinstance(frame, basestring) and frame == 'shutdown':
                 socket.close()
                 break
+            stringData = re.sub('inicio', 'sustituyendo_palabra', stringData)
             stringData = data.tostring() + 'inicio'
-            #sustituir las ocurrencias de la palabra de inicio 
+            #sustituir las ocurrencias de la palabra de inicio
 
             socket.send(stringData);
         log('Shutting down client on %s:%s' % self.address)

@@ -10,7 +10,7 @@ import signal
 import threading
 import time
 
-SERVER_ADDRESS = 'localhost'
+SERVER_ADDRESS = '127.0.0.1'
 UDP_PORT = 10021
 TCP_HOST = ''
 TCP_PORT = 2100
@@ -38,14 +38,14 @@ class UDPClient(Thread):
             if (datetime.now() - self.last_req_time > timedelta(seconds = 90)):
                 # Check last req time for hanged connections
                 break
-            frame = self.mailbox.get()
+            frame, time_stamp = self.mailbox.get()
             if isinstance(frame, basestring) and frame == 'shutdown':
                 break
-            self.socket.sendto(frame, self.address)
+            self.socket.sendto(time_stamp + frame, self.address)
         log('Shutting down client on %s:%s' % self.address)
 
-    def feed_frame(self, frame):
-        self.mailbox.put(frame)
+    def feed_frame(self, frame, time_stamp):
+        self.mailbox.put((frame, time_stamp))
 
     def set_last_req_time(self):
         self.last_req_time = datetime.now()
@@ -102,8 +102,9 @@ class VideoCaster(Thread):
                 encode_success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
                 if encode_success:
                     mutexUDP.acquire()
+                    time_stamp = str(int(time.time()*1000))
                     for address, client in active_udp_clients.iteritems():
-                        client.feed_frame(encoded_frame)
+                        client.feed_frame(encoded_frame.tostring(), time_stamp)
                     mutexUDP.release()
                     data = numpy.array(encoded_frame)
                     stringData = data.tostring()
@@ -130,7 +131,7 @@ class UDPListener(Thread):
         self._stop_event = threading.Event()
 
     def run(self):
-        log('Waiting to receive UDP client request...\n')
+        log('Waiting to receive UDP client request...')
         while True:
             try:
                 data, address = self.socket.recvfrom(4096)
@@ -146,8 +147,6 @@ class UDPListener(Thread):
                 if self._stop_event.is_set():
                     break
 
-
-
     def stop(self):
         self._stop_event.set()
 
@@ -162,7 +161,7 @@ class TCPListener(Thread):
         self._stop_event = threading.Event()
 
     def run(self):
-        log('Waiting to receive TCP client request...\n')
+        log('Waiting to receive TCP client request...')
         while True:
             try:
                 sc, addr = self.socket.accept()

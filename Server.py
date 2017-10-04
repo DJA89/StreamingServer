@@ -18,7 +18,8 @@ TCP_PORT = 2100
 active_udp_clients = dict()
 active_tcp_clients = dict()
 encode_params = [int(cv2.IMWRITE_JPEG_QUALITY),20]
-
+mutexUDP = threading.Semaphore(1)
+mutexTCP = threading.Semaphore(1)
 
 class UDPClient(Thread):
     def __init__(self, socket, client_address):
@@ -27,7 +28,9 @@ class UDPClient(Thread):
         self.socket = socket
         self.address = client_address
         self.last_req_time = datetime.now()
+        mutexUDP.acquire()
         active_udp_clients[client_address] = self
+        mutexUDP.release()
 
     def run(self):
         while True:
@@ -56,7 +59,9 @@ class TCPClient(Thread):
         self.mailbox = Queue.Queue()
         self.socket = socket
         self.address = client_address
+        mutexTCP.acquire()
         active_tcp_clients[client_address] = self
+        mutexTCP.release()
 
     def run(self):
         while True:
@@ -90,14 +95,18 @@ class VideoCaster(Thread):
             if capture_success:
                 encode_success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
                 if encode_success:
+                    mutexUDP.acquire()
                     for address, client in active_udp_clients.iteritems():
                         client.feed_frame(encoded_frame)
+                    mutexUDP.release()
                     data = numpy.array(encoded_frame)
                     stringData = data.tostring()
                     stringData = re.sub('inicio', 'sustituyendo_palabra', stringData)
                     stringData += 'inicio'
+                    mutexTCP.acquire()
                     for address, client in active_tcp_clients.iteritems():
                         client.feed_frame(stringData)
+                    mutexTCP.release()
 
     def stop(self):
         self._stop_event.set()

@@ -6,6 +6,8 @@ from threading import Thread
 import Queue
 from datetime import datetime, timedelta
 import re
+import signal
+import threading
 
 SERVER_ADDRESS = 'localhost'
 UDP_PORT = 10021
@@ -37,7 +39,6 @@ class UDPClient(Thread):
                 break
             self.socket.sendto(frame, self.address)
         log('Shutting down client on %s:%s' % self.address)
-        self.stop()
 
     def feed_frame(self, frame):
         self.mailbox.put(frame)
@@ -66,7 +67,6 @@ class TCPClient(Thread):
 
             self.socket.send(frame);
         log('Shutting down client on %s:%s' % self.address)
-        self.stop()
 
     def feed_frame(self, frame):
         self.mailbox.put(frame)
@@ -79,9 +79,13 @@ class VideoCaster(Thread):
     def __init__(self):
         Thread.__init__(self)
         self.capture = cv2.VideoCapture(0)
+        self._stop_event = threading.Event()
 
     def run(self):
         while True:
+            if self._stop_event.is_set():
+                self.capture.release()
+                break
             capture_success, frame = self.capture.read()
             if capture_success:
                 encode_success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
@@ -96,8 +100,7 @@ class VideoCaster(Thread):
                         client.feed_frame(stringData)
 
     def stop(self):
-        self.capture.release()
-        self.join()
+        self._stop_event.set()
 
 class UDPListener(Thread):
     def __init__(self, host):
@@ -108,20 +111,31 @@ class UDPListener(Thread):
             socket.SOCK_DGRAM
         )
         self.socket.bind(host)
+        self.socket.settimeout(1)
+        self._stop_event = threading.Event()
 
     def run(self):
         log('Waiting to receive UDP client request...\n')
         while True:
-            data, address = self.socket.recvfrom(4096)
+            try:
+                data, address = self.socket.recvfrom(4096)
+                signal.alarm()
+                if (active_udp_clients.has_key(address)):
+                    log('Received a refresh request from %s on port %s' % address)
+                    active_udp_clients[address].set_last_req_time()
+                else:
+                    log('Received a UDP connection request from %s on port %s' % address)
+                    new_client = UDPClient(self.socket, address)
+                    new_client.daemon = True
+                    new_client.start()
+            except:
+                if self._stop_event.is_set():
+                    break
 
-            if (active_udp_clients.has_key(address)):
-                log('Received a refresh request from %s on port %s' % address)
-                active_udp_clients[address].set_last_req_time()
-            else:
-                log('Received a UDP connection request from %s on port %s' % address)
-                new_client = UDPClient(self.socket, address)
-                new_client.daemon = True
-                new_client.start()
+
+
+    def stop(self):
+        self._stop_event.set()
 
 class TCPListener(Thread):
     def __init__(self, host):
@@ -130,16 +144,24 @@ class TCPListener(Thread):
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.socket.bind((host, TCP_PORT))
         self.socket.listen(10)
+        self.socket.settimeout(1)
+        self._stop_event = threading.Event()
 
     def run(self):
         log('Waiting to receive TCP client request...\n')
         while True:
-            sc, addr = self.socket.accept()
-            # log('Received a TCP connection request from %s on port %s' % addr, TCP_HOST)
-            new_client = TCPClient(sc, addr)
-            new_client.daemon = True
-            new_client.start()
+            try:
+                sc, addr = self.socket.accept()
+                # log('Received a TCP connection request from %s on port %s' % addr, TCP_HOST)
+                new_client = TCPClient(sc, addr)
+                new_client.daemon = True
+                new_client.start()
+            except:
+                if self._stop_event.is_set():
+                    break
 
+    def stop(self):
+        self._stop_event.set()
 
 def server():
     udp_listener_thread = UDPListener((SERVER_ADDRESS, UDP_PORT))
@@ -151,8 +173,27 @@ def server():
     caster.daemon = True
     caster.start()
 
+    def finish_it_up(a, b):
+        udp_listener_thread.stop()
+        udp_listener_thread.join()
+        tcp_listener_thread.stop()
+        tcp_listener_thread.join()
+        caster.stop()
+        caster.join()
+        for client in active_udp_clients.iteritems():
+            client.stop()
+            client.join()
+        for client in active_tcp_clients.iteritems():
+            client.stop()
+            client.join()
+        sys.exit(0)
+    signal.signal(signal.SIGINT, finish_it_up)
+
+    while True:
+        time.sleep(0.5)
+
 def log(message):
-    print >>sys.stderr, '[%s] - %s' % (datetime.now().strftime('%H:%M:%S'), message)
+    print >> sys.stderr, '[%s] - %s' % (datetime.now().strftime('%H:%M:%S'), message)
 
 if __name__ == "__main__":
     server()

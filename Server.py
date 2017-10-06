@@ -15,7 +15,7 @@ UDP_PORT = 10021
 TCP_HOST = ''
 TCP_PORT = 2100
 # import code; code.interact(local=dict(globals(), **locals()))
-
+# sudo sysctl -w net.inet.udp.maxdgram=65535
 active_udp_clients = dict()
 active_tcp_clients = dict()
 encode_params = [int(cv2.IMWRITE_JPEG_QUALITY),20]
@@ -59,6 +59,7 @@ class TCPClient(Thread):
         Thread.__init__(self)
         self.mailbox = Queue.Queue()
         self.socket = socket
+        self.socket.setblocking(1)
         self.address = client_address
         mutexTCP.acquire()
         active_tcp_clients[client_address] = self

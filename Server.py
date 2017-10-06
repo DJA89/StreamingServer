@@ -10,7 +10,7 @@ import signal
 import threading
 import time
 
-SERVER_ADDRESS = 'localhost'
+SERVER_ADDRESS = '127.0.0.1'
 UDP_PORT = 10021
 TCP_HOST = ''
 TCP_PORT = 2100
@@ -38,14 +38,14 @@ class UDPClient(Thread):
             if (datetime.now() - self.last_req_time > timedelta(seconds = 90)):
                 # Check last req time for hanged connections
                 break
-            frame = self.mailbox.get()
+            frame, sequence_number = self.mailbox.get()
             if isinstance(frame, basestring) and frame == 'shutdown':
                 break
-            self.socket.sendto(frame, self.address)
+            self.socket.sendto(sequence_number + frame, self.address)
         log('Shutting down client on %s:%s' % self.address)
 
-    def feed_frame(self, frame):
-        self.mailbox.put(frame)
+    def feed_frame(self, frame, sequence_number):
+        self.mailbox.put((frame, sequence_number))
 
     def set_last_req_time(self):
         self.last_req_time = datetime.now()
@@ -90,7 +90,12 @@ class VideoCaster(Thread):
         height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
         self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
         self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, int(640*height/width))
+        self.sequence_number = 1;
 
+    def get_sequence_number(self):
+        sequence_number = self.sequence_number
+        self.sequence_number += 1
+        return "%06d" % (sequence_number,)
 
     def run(self):
         while True:
@@ -102,8 +107,9 @@ class VideoCaster(Thread):
                 encode_success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
                 if encode_success:
                     mutexUDP.acquire()
+                    sequence_number = self.get_sequence_number()
                     for address, client in active_udp_clients.iteritems():
-                        client.feed_frame(encoded_frame)
+                        client.feed_frame(encoded_frame.tostring(), sequence_number)
                     mutexUDP.release()
                     data = numpy.array(encoded_frame)
                     stringData = data.tostring()
@@ -130,7 +136,7 @@ class UDPListener(Thread):
         self._stop_event = threading.Event()
 
     def run(self):
-        log('Waiting to receive UDP client request...\n')
+        log('Waiting to receive UDP client request...')
         while True:
             try:
                 data, address = self.socket.recvfrom(4096)
@@ -146,8 +152,6 @@ class UDPListener(Thread):
                 if self._stop_event.is_set():
                     break
 
-
-
     def stop(self):
         self._stop_event.set()
 
@@ -162,7 +166,7 @@ class TCPListener(Thread):
         self._stop_event = threading.Event()
 
     def run(self):
-        log('Waiting to receive TCP client request...\n')
+        log('Waiting to receive TCP client request...')
         while True:
             try:
                 sc, addr = self.socket.accept()

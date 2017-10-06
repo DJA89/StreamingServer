@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import re
 import signal
 import threading
+import time
 
 SERVER_ADDRESS = 'localhost'
 UDP_PORT = 10021
@@ -85,6 +86,11 @@ class VideoCaster(Thread):
         Thread.__init__(self)
         self.capture = cv2.VideoCapture(0)
         self._stop_event = threading.Event()
+        width = self.capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+        height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, int(640*height/width))
+
 
     def run(self):
         while True:
@@ -128,7 +134,6 @@ class UDPListener(Thread):
         while True:
             try:
                 data, address = self.socket.recvfrom(4096)
-                signal.alarm()
                 if (active_udp_clients.has_key(address)):
                     log('Received a refresh request from %s on port %s' % address)
                     active_udp_clients[address].set_last_req_time()

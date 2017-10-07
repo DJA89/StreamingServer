@@ -83,9 +83,9 @@ class TCPClient(Thread):
         self.mailbox.put("shutdown")
 
 class VideoCaster(Thread):
-    def __init__(self):
+    def __init__(self, video_source):
         Thread.__init__(self)
-        self.capture = cv2.VideoCapture(0)
+        self.capture = cv2.VideoCapture(video_source)
         self._stop_event = threading.Event()
         width = self.capture.get(cv2.CAP_PROP_FRAME_WIDTH)
         height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
@@ -104,6 +104,7 @@ class VideoCaster(Thread):
                 self.capture.release()
                 break
             capture_success, frame = self.capture.read()
+            # Si es video tenemos que fijarnos las FPS
             if capture_success:
                 encode_success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
                 if encode_success:
@@ -183,12 +184,18 @@ class TCPListener(Thread):
         self._stop_event.set()
 
 def server():
+    args = sys.argv
+    try:
+        video_source = args[1]
+    except:
+        video_source = 0
+
     udp_listener_thread = UDPListener((SERVER_ADDRESS, UDP_PORT))
     udp_listener_thread.start()
     tcp_listener_thread = TCPListener(TCP_HOST)
     tcp_listener_thread.start()
 
-    caster = VideoCaster()
+    caster = VideoCaster(video_source)
     caster.daemon = True
     caster.start()
 

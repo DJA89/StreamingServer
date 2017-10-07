@@ -54,7 +54,7 @@ class UDPClient(Thread):
         self.last_req_time = datetime.now()
 
     def stop(self):
-        self.mailbox.put("shutdown")
+        self.mailbox.put(("shutdown", None))
 
 class TCPClient(Thread):
     def __init__(self, socket, client_address):
@@ -107,12 +107,17 @@ class VideoCaster(Thread):
         return "%06d" % (sequence_number,)
 
     def run(self):
+        frame_counter = 0
+        frame_tope = self.capture.get(cv2.CAP_PROP_FRAME_COUNT) - 1
         while True:
             if self._stop_event.is_set():
                 self.capture.release()
                 break
             capture_success, frame = self.capture.read()
-            # Si es video tenemos que fijarnos las FPS
+            frame_counter += 1
+            if frame_counter == frame_tope:
+                frame_counter = 0
+                self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
             if capture_success:
                 encode_success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
                 if encode_success:
@@ -232,7 +237,6 @@ def server():
     def finish_it_up(a, b):
         udp_listener_thread.stop()
         tcp_listener_thread.stop()
-        caster.stop()
         active_udp_clients2 = active_udp_clients.copy()
         for address, client in active_udp_clients2.iteritems():
             client.stop()
@@ -241,6 +245,7 @@ def server():
         for address, client in active_tcp_clients2.iteritems():
             client.stop()
             client.join()
+        caster.stop()
         udp_listener_thread.join()
         tcp_listener_thread.join()
         caster.join()

@@ -43,6 +43,9 @@ class UDPClient(Thread):
                 break
             self.socket.sendto(sequence_number + frame, self.address)
         log('Shutting down client on %s:%s' % self.address)
+        mutexUDP.acquire()
+        del active_udp_clients[self.address]
+        mutexUDP.release()
 
     def feed_frame(self, frame, sequence_number):
         self.mailbox.put((frame, sequence_number))
@@ -51,7 +54,6 @@ class UDPClient(Thread):
         self.last_req_time = datetime.now()
 
     def stop(self):
-        del active_udp_clients[self.address]
         self.mailbox.put("shutdown")
 
 class TCPClient(Thread):
@@ -151,6 +153,7 @@ class UDPListener(Thread):
                     new_client.start()
             except:
                 if self._stop_event.is_set():
+                    self.socket.close()
                     break
 
     def stop(self):

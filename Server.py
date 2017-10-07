@@ -95,10 +95,30 @@ class VideoCaster(Thread):
         Thread.__init__(self)
         self.capture = cv2.VideoCapture(video_source)
         self._stop_event = threading.Event()
-        width = self.capture.get(cv2.CAP_PROP_FRAME_WIDTH)
-        height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
-        self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-        self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, int(640*height/width))
+        self.is_camera = video_source == 0
+        self.old_encoded_frame = ''
+        # Find OpenCV version
+        (major_ver, minor_ver, subminor_ver) = (cv2.__version__).split('.')   
+        self.major_ver = int(major_ver)
+
+        if self.major_ver  < 3 :
+            if not self.is_camera:
+                self.fps = self.capture.get(cv2.cv.CV_CAP_PROP_FPS)
+                print "Frames per second: {0}".format(self.fps)
+
+            width = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
+            height = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)
+            self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, 640)
+            self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT, int(640*height/width))
+        else :
+            if not self.is_camera:
+                self.fps = self.capture.get(cv2.CAP_PROP_FPS)
+                print "Frames per second: {0}".format(self.fps)
+            width = self.capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+            height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, int(640*height/width))
+
         self.sequence_number = 1;
 
     def get_sequence_number(self):
@@ -108,33 +128,43 @@ class VideoCaster(Thread):
 
     def run(self):
         frame_counter = 0
-        frame_tope = self.capture.get(cv2.CAP_PROP_FRAME_COUNT) - 1
+        if not self.is_camera:
+            if self.major_ver < 3 :
+                frame_tope = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_COUNT) - 1
+            else:
+                frame_tope = self.capture.get(cv2.CAP_PROP_FRAME_COUNT) - 1
         while True:
             if self._stop_event.is_set():
                 self.capture.release()
                 break
+            if not self.is_camera:
+                time.sleep(1.0/self.fps)
+
             capture_success, frame = self.capture.read()
             frame_counter += 1
-            if frame_counter == frame_tope:
+            if (not self.is_camera) and (frame_counter == frame_tope):
                 frame_counter = 0
-                self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                if self.major_ver  < 3 :
+                    self.capture.set(cv2.cv.CV_CAP_PROP_POS_FRAMES, 0)
+                else:
+                    self.capture.set(cv2.CAP_PROP_POS_FRAMES, 0)
             if capture_success:
                 encode_success, encoded_frame = cv2.imencode('.jpg', frame, encode_params)
-                if encode_success:
-                    mutexUDP.acquire()
-                    sequence_number = self.get_sequence_number()
-                    for address, client in active_udp_clients.iteritems():
-                        client.feed_frame(encoded_frame.tostring(), sequence_number)
-                    mutexUDP.release()
-                    data = numpy.array(encoded_frame)
-                    stringData = data.tostring()
-                    stringData = re.sub('inicio', 'sustituyendo_palabra', stringData)
-                    stringData += 'inicio'
-                    mutexTCP.acquire()
-                    for address, client in active_tcp_clients.iteritems():
-                        client.feed_frame(stringData)
-                    mutexTCP.release()
-
+                if encode_success and not(self.is_camera and self.old_encoded_frame == encoded_frame.tostring()):
+                        mutexUDP.acquire()
+                        sequence_number = self.get_sequence_number()
+                        for address, client in active_udp_clients.iteritems():
+                            client.feed_frame(encoded_frame.tostring(), sequence_number)
+                        mutexUDP.release()
+                        data = numpy.array(encoded_frame)
+                        stringData = data.tostring()
+                        stringData = re.sub('inicio', 'sustituyendo_palabra', stringData)
+                        stringData += 'inicio'
+                        mutexTCP.acquire()
+                        for address, client in active_tcp_clients.iteritems():
+                            client.feed_frame(stringData)
+                        mutexTCP.release()
+                        self.old_encoded_frame = encoded_frame.tostring()
     def stop(self):
         self._stop_event.set()
 

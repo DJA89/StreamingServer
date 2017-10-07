@@ -43,6 +43,9 @@ class UDPClient(Thread):
                 break
             self.socket.sendto(sequence_number + frame, self.address)
         log('Shutting down client on %s:%s' % self.address)
+        mutexUDP.acquire()
+        del active_udp_clients[self.address]
+        mutexUDP.release()
 
     def feed_frame(self, frame, sequence_number):
         self.mailbox.put((frame, sequence_number))
@@ -51,7 +54,6 @@ class UDPClient(Thread):
         self.last_req_time = datetime.now()
 
     def stop(self):
-        del active_udp_clients[self.address]
         self.mailbox.put("shutdown")
 
 class TCPClient(Thread):
@@ -61,19 +63,22 @@ class TCPClient(Thread):
         self.socket = socket
         self.socket.setblocking(1)
         self.address = client_address
+        self._stop_event = threading.Event()
         mutexTCP.acquire()
         active_tcp_clients[client_address] = self
         mutexTCP.release()
+        new_ender = TCPEnder(socket, self)
+        new_ender.start()
 
     def run(self):
         while True:
             frame = self.mailbox.get()
-            if isinstance(frame, basestring) and frame == 'shutdown':
-                socket.close()
+            if (isinstance(frame, basestring) and frame == 'shutdown') or (self._stop_event.is_set()):
                 break
-
             self.socket.send(frame);
         log('Shutting down client on %s:%s' % self.address)
+        self.socket.shutdown(socket.SHUT_WR)
+        self.socket.close()
 
     def feed_frame(self, frame):
         self.mailbox.put(frame)
@@ -81,6 +86,9 @@ class TCPClient(Thread):
     def stop(self):
         del active_tcp_clients[self.address]
         self.mailbox.put("shutdown")
+
+    def lost_client(self):
+        self._stop_event.set()
 
 class VideoCaster(Thread):
     def __init__(self, video_source):
@@ -148,20 +156,38 @@ class UDPListener(Thread):
                 else:
                     log('Received a UDP connection request from %s on port %s' % address)
                     new_client = UDPClient(self.socket, address)
-                    new_client.daemon = True
                     new_client.start()
             except:
                 if self._stop_event.is_set():
+                    not_empty = True
+                    while not_empty:
+                        mutexUDP.acquire()
+                        not_empty = bool(active_udp_clients)
+                        mutexUDP.release()
+                    self.socket.close()
                     break
 
     def stop(self):
         self._stop_event.set()
+
+class TCPEnder(Thread):
+    def __init__(self, socket, client):
+        Thread.__init__(self)
+        self.socket = socket
+        self.client = client
+
+    def run(self):
+        data = self.socket.recv(4096)
+        if self.client:
+            self.client.lost_client()
+
 
 class TCPListener(Thread):
     def __init__(self, host):
         Thread.__init__(self)
         # log('Strating TCP on %s port %s\n' % host)
         self.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         self.socket.bind((host, TCP_PORT))
         self.socket.listen(10)
         self.socket.settimeout(1)
@@ -172,12 +198,16 @@ class TCPListener(Thread):
         while True:
             try:
                 sc, addr = self.socket.accept()
-                # log('Received a TCP connection request from %s on port %s' % addr, TCP_HOST)
                 new_client = TCPClient(sc, addr)
-                new_client.daemon = True
                 new_client.start()
             except:
                 if self._stop_event.is_set():
+                    not_empty = True
+                    while not not_empty:
+                        mutexTCP.acquire()
+                        not_empty = bool(active_tcp_clients)
+                        mutexTCP.release()
+                    self.socket.close()
                     break
 
     def stop(self):
@@ -201,17 +231,19 @@ def server():
 
     def finish_it_up(a, b):
         udp_listener_thread.stop()
-        udp_listener_thread.join()
         tcp_listener_thread.stop()
-        tcp_listener_thread.join()
         caster.stop()
+        active_udp_clients2 = active_udp_clients.copy()
+        for address, client in active_udp_clients2.iteritems():
+            client.stop()
+            client.join()
+        active_tcp_clients2 = active_tcp_clients.copy()
+        for address, client in active_tcp_clients2.iteritems():
+            client.stop()
+            client.join()
+        udp_listener_thread.join()
+        tcp_listener_thread.join()
         caster.join()
-        for client in active_udp_clients.iteritems():
-            client.stop()
-            client.join()
-        for client in active_tcp_clients.iteritems():
-            client.stop()
-            client.join()
         sys.exit(0)
     signal.signal(signal.SIGINT, finish_it_up)
 

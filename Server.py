@@ -201,11 +201,10 @@ class UDPListener(Thread):
                     new_client.start()
             except:
                 if self._stop_event.is_set():
-                    not_empty = True
-                    while not_empty:
-                        mutexUDP.acquire()
-                        not_empty = bool(active_udp_clients)
-                        mutexUDP.release()
+                    active_udp_clients2 = active_udp_clients.copy()
+                    for address, client in active_udp_clients2.iteritems():
+                        client.stop()
+                        client.join()
                     self.socket.close()
                     break
 
@@ -244,11 +243,10 @@ class TCPListener(Thread):
                 new_client.start()
             except:
                 if self._stop_event.is_set():
-                    not_empty = True
-                    while not not_empty:
-                        mutexTCP.acquire()
-                        not_empty = bool(active_tcp_clients)
-                        mutexTCP.release()
+                    active_tcp_clients2 = active_tcp_clients.copy()
+                    for address, client in active_tcp_clients2.iteritems():
+                        client.stop()
+                        client.join()
                     self.socket.close()
                     break
 
@@ -271,25 +269,16 @@ def server():
     tcp_listener_thread.start()
 
     caster = VideoCaster(video_source)
-    caster.daemon = True
     caster.start()
 
     def finish_it_up(a, b):
         udp_listener_thread.stop()
         tcp_listener_thread.stop()
-        active_udp_clients2 = active_udp_clients.copy()
-        for address, client in active_udp_clients2.iteritems():
-            client.stop()
-            client.join()
-        active_tcp_clients2 = active_tcp_clients.copy()
-        for address, client in active_tcp_clients2.iteritems():
-            client.stop()
-            client.join()
+        udp_listener_thread.join()
+        tcp_listener_thread.join()
         if caster:
             caster.stop()
             caster.join()
-        udp_listener_thread.join()
-        tcp_listener_thread.join()
         sys.exit(0)
     signal.signal(signal.SIGINT, finish_it_up)
 

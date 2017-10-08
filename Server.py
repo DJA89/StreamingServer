@@ -107,17 +107,25 @@ class VideoCaster(Thread):
                 print "Frames per second: {0}".format(self.fps)
 
             width = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
-            height = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)
-            self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, 640)
-            self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT, int(640*height/width))
+            if width == 0:
+                print 'No se puede leer el origen del video.'
+                self._stop_event.set()
+            else:
+                height = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)
+                self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, 640)
+                self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT, int(640*height/width))
         else :
             if not self.is_camera:
                 self.fps = self.capture.get(cv2.CAP_PROP_FPS)
                 print "Frames per second: {0}".format(self.fps)
             width = self.capture.get(cv2.CAP_PROP_FRAME_WIDTH)
-            height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
-            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, int(640*height/width))
+            if width == 0:
+                print 'No se puede leer el origen del video.'
+                self._stop_event.set()
+            else:
+                height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+                self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+                self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, int(640*height/width))
 
         self.sequence_number = 1;
 
@@ -275,10 +283,11 @@ def server():
         for address, client in active_tcp_clients2.iteritems():
             client.stop()
             client.join()
-        caster.stop()
+        if caster:
+            caster.stop()
+            caster.join()
         udp_listener_thread.join()
         tcp_listener_thread.join()
-        caster.join()
         sys.exit(0)
     signal.signal(signal.SIGINT, finish_it_up)
 

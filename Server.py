@@ -98,7 +98,7 @@ class VideoCaster(Thread):
         self.is_camera = video_source == 0
         self.old_encoded_frame = ''
         # Find OpenCV version
-        (major_ver, minor_ver, subminor_ver) = (cv2.__version__).split('.')   
+        major_ver = (cv2.__version__).split('.')[0]
         self.major_ver = int(major_ver)
 
         if self.major_ver  < 3 :

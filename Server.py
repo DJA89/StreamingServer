@@ -90,15 +90,14 @@ class TCPClient(Thread):
         self._stop_event.set()
 
 class VideoCaster(Thread):
-    def __init__(self, video_source):
+    def __init__(self, is_camera, capture, major_ver):
         Thread.__init__(self)
-        self.capture = cv2.VideoCapture(video_source)
+        self.capture = capture
         self._stop_event = threading.Event()
-        self.is_camera = video_source == 0
+        self.is_camera = is_camera
         self.old_encoded_frame = ''
         # Find OpenCV version
-        major_ver = (cv2.__version__).split('.')[0]
-        self.major_ver = int(major_ver)
+        self.major_ver = major_ver
 
         if self.major_ver  < 3 :
             if not self.is_camera:
@@ -106,25 +105,17 @@ class VideoCaster(Thread):
                 print "Frames per second: {0}".format(self.fps)
 
             width = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
-            if width == 0:
-                print 'No se puede leer el origen del video. Por favor apague y pruebe con otra fuente.'
-                self._stop_event.set()
-            else:
-                height = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)
-                self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, 640)
-                self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT, int(640*height/width))
+            height = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)
+            self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_WIDTH, 640)
+            self.capture.set(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT, int(640*height/width))
         else :
             if not self.is_camera:
                 self.fps = self.capture.get(cv2.CAP_PROP_FPS)
                 print "Frames per second: {0}".format(self.fps)
             width = self.capture.get(cv2.CAP_PROP_FRAME_WIDTH)
-            if width == 0:
-                print 'No se puede leer el origen del video. Por favor apague y pruebe con otra fuente.'
-                self._stop_event.set()
-            else:
-                height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
-                self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-                self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, int(640*height/width))
+            height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            self.capture.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+            self.capture.set(cv2.CAP_PROP_FRAME_HEIGHT, int(640*height/width))
 
         self.sequence_number = 1;
 
@@ -263,12 +254,25 @@ def server():
             server_address = k
         else:
             video_source = k
+    capture = cv2.VideoCapture(video_source)
+    major_ver = int((cv2.__version__).split('.')[0])
+    if major_ver  < 3 :
+        width = capture.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
+        if width == 0:
+            print 'No se puede leer el origen del video. Por favor pruebe con otra fuente.'
+            sys.exit(0)
+    else :
+        width = capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+        if width == 0:
+            print 'No se puede leer el origen del video. Por favor pruebe con otra fuente.'
+            sys.exit(0)
+    is_camera = video_source == 0
     udp_listener_thread = UDPListener((server_address, UDP_PORT))
     udp_listener_thread.start()
     tcp_listener_thread = TCPListener(TCP_HOST)
     tcp_listener_thread.start()
 
-    caster = VideoCaster(video_source)
+    caster = VideoCaster(is_camera, capture, major_ver)
     caster.start()
 
     def finish_it_up(a, b):
@@ -276,9 +280,8 @@ def server():
         tcp_listener_thread.stop()
         udp_listener_thread.join()
         tcp_listener_thread.join()
-        if caster:
-            caster.stop()
-            caster.join()
+        caster.stop()
+        caster.join()
         sys.exit(0)
     signal.signal(signal.SIGINT, finish_it_up)
 

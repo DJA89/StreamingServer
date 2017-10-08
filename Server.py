@@ -10,7 +10,6 @@ import signal
 import threading
 import time
 
-SERVER_ADDRESS = '127.0.0.1'
 UDP_PORT = 10021
 TCP_HOST = ''
 TCP_PORT = 2100
@@ -108,7 +107,7 @@ class VideoCaster(Thread):
 
             width = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
             if width == 0:
-                print 'No se puede leer el origen del video.'
+                print 'No se puede leer el origen del video. Por favor apague y pruebe con otra fuente.'
                 self._stop_event.set()
             else:
                 height = self.capture.get(cv2.cv.CV_CAP_PROP_FRAME_HEIGHT)
@@ -120,7 +119,7 @@ class VideoCaster(Thread):
                 print "Frames per second: {0}".format(self.fps)
             width = self.capture.get(cv2.CAP_PROP_FRAME_WIDTH)
             if width == 0:
-                print 'No se puede leer el origen del video.'
+                print 'No se puede leer el origen del video. Por favor apague y pruebe con otra fuente.'
                 self._stop_event.set()
             else:
                 height = self.capture.get(cv2.CAP_PROP_FRAME_HEIGHT)
@@ -257,13 +256,16 @@ class TCPListener(Thread):
         self._stop_event.set()
 
 def server():
+    ip_address_regex = re.compile('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\Z')
     args = sys.argv
-    try:
-        video_source = args[1]
-    except:
-        video_source = 0
-
-    udp_listener_thread = UDPListener((SERVER_ADDRESS, UDP_PORT))
+    server_address = '127.0.0.1'
+    video_source = 0
+    for k in args[1:]:
+        if ip_address_regex.match(k):
+            server_address = k
+        else:
+            video_source = k
+    udp_listener_thread = UDPListener((server_address, UDP_PORT))
     udp_listener_thread.start()
     tcp_listener_thread = TCPListener(TCP_HOST)
     tcp_listener_thread.start()

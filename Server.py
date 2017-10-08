@@ -10,7 +10,6 @@ import signal
 import threading
 import time
 
-SERVER_ADDRESS = '127.0.0.1'
 UDP_PORT = 10021
 TCP_HOST = ''
 TCP_PORT = 2100
@@ -91,15 +90,14 @@ class TCPClient(Thread):
         self._stop_event.set()
 
 class VideoCaster(Thread):
-    def __init__(self, video_source):
+    def __init__(self, is_camera, capture, major_ver):
         Thread.__init__(self)
-        self.capture = cv2.VideoCapture(video_source)
+        self.capture = capture
         self._stop_event = threading.Event()
-        self.is_camera = video_source == 0
+        self.is_camera = is_camera
         self.old_encoded_frame = ''
         # Find OpenCV version
-        major_ver = (cv2.__version__).split('.')[0]
-        self.major_ver = int(major_ver)
+        self.major_ver = major_ver
 
         if self.major_ver  < 3 :
             if not self.is_camera:
@@ -194,11 +192,10 @@ class UDPListener(Thread):
                     new_client.start()
             except:
                 if self._stop_event.is_set():
-                    not_empty = True
-                    while not_empty:
-                        mutexUDP.acquire()
-                        not_empty = bool(active_udp_clients)
-                        mutexUDP.release()
+                    active_udp_clients2 = active_udp_clients.copy()
+                    for address, client in active_udp_clients2.iteritems():
+                        client.stop()
+                        client.join()
                     self.socket.close()
                     break
 
@@ -237,11 +234,10 @@ class TCPListener(Thread):
                 new_client.start()
             except:
                 if self._stop_event.is_set():
-                    not_empty = True
-                    while not not_empty:
-                        mutexTCP.acquire()
-                        not_empty = bool(active_tcp_clients)
-                        mutexTCP.release()
+                    active_tcp_clients2 = active_tcp_clients.copy()
+                    for address, client in active_tcp_clients2.iteritems():
+                        client.stop()
+                        client.join()
                     self.socket.close()
                     break
 
@@ -249,35 +245,42 @@ class TCPListener(Thread):
         self._stop_event.set()
 
 def server():
+    ip_address_regex = re.compile('\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\Z')
     args = sys.argv
-    try:
-        video_source = args[1]
-    except:
-        video_source = 0
-
-    udp_listener_thread = UDPListener((SERVER_ADDRESS, UDP_PORT))
+    server_address = '127.0.0.1'
+    video_source = 0
+    for k in args[1:]:
+        if ip_address_regex.match(k):
+            server_address = k
+        else:
+            video_source = k
+    capture = cv2.VideoCapture(video_source)
+    major_ver = int((cv2.__version__).split('.')[0])
+    if major_ver  < 3 :
+        width = capture.get(cv2.cv.CV_CAP_PROP_FRAME_WIDTH)
+        if width == 0:
+            print 'No se puede leer el origen del video. Por favor pruebe con otra fuente.'
+            sys.exit(0)
+    else :
+        width = capture.get(cv2.CAP_PROP_FRAME_WIDTH)
+        if width == 0:
+            print 'No se puede leer el origen del video. Por favor pruebe con otra fuente.'
+            sys.exit(0)
+    is_camera = video_source == 0
+    udp_listener_thread = UDPListener((server_address, UDP_PORT))
     udp_listener_thread.start()
     tcp_listener_thread = TCPListener(TCP_HOST)
     tcp_listener_thread.start()
 
-    caster = VideoCaster(video_source)
-    caster.daemon = True
+    caster = VideoCaster(is_camera, capture, major_ver)
     caster.start()
 
     def finish_it_up(a, b):
         udp_listener_thread.stop()
         tcp_listener_thread.stop()
-        active_udp_clients2 = active_udp_clients.copy()
-        for address, client in active_udp_clients2.iteritems():
-            client.stop()
-            client.join()
-        active_tcp_clients2 = active_tcp_clients.copy()
-        for address, client in active_tcp_clients2.iteritems():
-            client.stop()
-            client.join()
-        caster.stop()
         udp_listener_thread.join()
         tcp_listener_thread.join()
+        caster.stop()
         caster.join()
         sys.exit(0)
     signal.signal(signal.SIGINT, finish_it_up)
